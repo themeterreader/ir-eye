@@ -15,7 +15,7 @@ MQTT_USER = 'powermeterreader'
 MQTT_PASSWORD = 'password' # <------------------------------------------------------------ YOUR MQTT PASSWORD HERE
 SERIAL_PORT = '/dev/serial/by-id/usb-FTDI_FT230X_Basic_UART_DQ00LLF3-if00-port0' # <------ YOUR OUTPUT FROM 
 PASSWORD = 'c3XXXXXXXXXXXXXXXX6b' # <----------------------------------------------------- YOUR 20-CHARACTER PASSWORD RECEIVED FROM METER COMPANY HERE
-METER_ID = 'serial_XXXXXX>' # <----------------------------------------------------------- YOUR METER SERIAL HERE
+METER_ID = 'serial_XXXXXX' # <------------------------------------------------------------ YOUR METER SERIAL HERE
 METER_MANUFACTURER = 'nes'
 METER_MODEL = 'NES83334'
 METER_NAME = 'MainMeter'
@@ -149,62 +149,6 @@ class PacketAndTransmissionhandler:
 
         status.add_error("Message failed after max retries: " + msgType)
         return None
-    
-    def calcCRC(self, string_of_hex_values):
-        hex_values = binascii.unhexlify(string_of_hex_values)
-        bit_mask = 0xffff
-        poly_mask = 0x8408 #0x1021 msb->lsb
-        in_bit_mask = 0x8000
-        out_bit_mask = 1
-        value = 0xffff
-
-        for byte in hex_values:
-            for n in range(0, 8):
-                out_bit = (value & out_bit_mask) != 0
-                value = (value >> 1) & bit_mask
-                if out_bit ^ bool((byte >> n) & 1):
-                    value ^= poly_mask
-        return binascii.hexlify(struct.pack('<H', value ^ 0xffff)).decode('utf-8')
-
-    def extractPayload(self, all_bytes_in_packet):
-        # 1 Verify CRC
-        # 2 Strip preamble and return payload contents
-        payload = all_bytes_in_packet[:-2]
-        crc_received = all_bytes_in_packet[-2:]
-        crc_from_payload = self.calcCRC(payload.hex())
-        if crc_from_payload != crc_received.hex():
-            raise serial.SerialException(f"CRC received did not match CRC calculated from received payload ({crc_from_payload} vs {crc_received})")
-        data_length, = struct.unpack(">H", payload[4:6])
-        payload = payload[6:]
-        if data_length != len(payload):
-            raise serial.SerialException(f"Length received did not match length of received payload ({data_length} vs {len(payload)})")
-        return payload
-
-    def send_ident(self):
-        self.send('20', 'ident')
-
-    def send_logon(self):
-        logon_response = self.send(f"50{userid:0>4X}{binascii.a2b_qp(padded_username).hex()}", 'logon')
-        if logon_response is None or logon_response[0] != 0:
-            status.add_error(f"LOGON command failed. ({logon_response})")
-
-    def send_security(self):
-        security_response = self.send(f"51{binascii.a2b_qp(PASSWORD).hex()}", 'security')
-        if security_response is None or security_response[0] != 0:
-            status.add_error(f"SECURITY command failed. ({security_response})")
-
-    def read_table_data(self, table_no, octet_count, offset = 0):
-        read_result = self.send(f"3f{table_no:0>4X}{offset:0>6X}{octet_count:0>4X}", f'readtable{table_no}')
-        if read_result[0] != 0:
-            raise serial.SerialException(f"Non-OK response from table-read ({read_result[0]})")
-        if octet_count != struct.unpack(">H", read_result[1:3])[0] :
-            raise serial.SerialException(f"Number of octets read does not match the number reuested ({struct.unpack('>H', read_result[1:3])[0]} vs {octet_count})")
-        read_result_checksum = read_result[-1]
-        read_result = read_result[3:-1]
-        calculated_checksum = ((sum(read_result) - 1) & 0xff) ^ 0xff
-        if read_result_checksum != calculated_checksum:
-            raise serial.SerialException(f"Calculated table data checksum does not match received checksum ({calculated_checksum} vs {read_result_checksum})")
-        return read_result
 
     def calcCRC(self, string_of_hex_values):
         hex_values = binascii.unhexlify(string_of_hex_values)
@@ -261,7 +205,63 @@ class PacketAndTransmissionhandler:
         if read_result_checksum != calculated_checksum:
             raise serial.SerialException(f"Calculated table data checksum does not match received checksum ({calculated_checksum} vs {read_result_checksum})")
         return read_result
-        
+
+    def calcCRC(self, string_of_hex_values):
+        hex_values = binascii.unhexlify(string_of_hex_values)
+        bit_mask = 0xffff
+        poly_mask = 0x8408 #0x1021 msb->lsb
+        in_bit_mask = 0x8000
+        out_bit_mask = 1
+        value = 0xffff
+
+        for byte in hex_values:
+            for n in range(0, 8):
+                out_bit = (value & out_bit_mask) != 0
+                value = (value >> 1) & bit_mask
+                if out_bit ^ bool((byte >> n) & 1):
+                    value ^= poly_mask
+        return binascii.hexlify(struct.pack('<H', value ^ 0xffff)).decode('utf-8')
+
+    def extractPayload(self, all_bytes_in_packet):
+        # 1 Verify CRC
+        # 2 Strip preamble and return payload contents
+        payload = all_bytes_in_packet[:-2]
+        crc_received = all_bytes_in_packet[-2:]
+        crc_from_payload = self.calcCRC(payload.hex())
+        if crc_from_payload != crc_received.hex():
+            raise serial.SerialException(f"CRC received did not match CRC calculated from received payload ({crc_from_payload} vs {crc_received})")
+        data_length, = struct.unpack(">H", payload[4:6])
+        payload = payload[6:]
+        if data_length != len(payload):
+            raise serial.SerialException(f"Length received did not match length of received payload ({data_length} vs {len(payload)})")
+        return payload
+
+    def send_ident(self):
+        self.send('20', 'ident')
+
+    def send_logon(self):
+        logon_response = self.send(f"50{userid:0>4X}{binascii.a2b_qp(padded_username).hex()}", 'logon')
+        if logon_response is None or logon_response[0] != 0:
+            status.add_error(f"LOGON command failed. ({logon_response})")
+
+    def send_security(self):
+        security_response = self.send(f"51{binascii.a2b_qp(PASSWORD).hex()}", 'security')
+        if security_response is None or security_response[0] != 0:
+            status.add_error(f"SECURITY command failed. ({security_response})")
+
+    def read_table_data(self, table_no, octet_count, offset = 0):
+        read_result = self.send(f"3f{table_no:0>4X}{offset:0>6X}{octet_count:0>4X}", f'readtable{table_no}')
+        if read_result[0] != 0:
+            raise serial.SerialException(f"Non-OK response from table-read ({read_result[0]})")
+        if octet_count != struct.unpack(">H", read_result[1:3])[0] :
+            raise serial.SerialException(f"Number of octets read does not match the number reuested ({struct.unpack('>H', read_result[1:3])[0]} vs {octet_count})")
+        read_result_checksum = read_result[-1]
+        read_result = read_result[3:-1]
+        calculated_checksum = ((sum(read_result) - 1) & 0xff) ^ 0xff
+        if read_result_checksum != calculated_checksum:
+            raise serial.SerialException(f"Calculated table data checksum does not match received checksum ({calculated_checksum} vs {read_result_checksum})")
+        return read_result
+
     def fetch_total_energy(self):
         table23_response = self.read_table_data(23, 8)
         if table23_response is None or len(table23_response) != 8:
